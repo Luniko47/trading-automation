@@ -1,0 +1,18 @@
+name: Weekly-Event-Digest
+on:
+  schedule:
+    - cron: '0 17 * * 0'
+  workflow_dispatch:
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r requirements.txt pytz
+      - run: python event_pull.py
+        env:
+          TG_TOKEN:    ${{ secrets.TG_TOKEN }}
+          CHAT_ID:     ${{ secrets.CHAT_ID }}
+          COINDAR_KEY: ${{ secrets.COINDAR_KEY }}

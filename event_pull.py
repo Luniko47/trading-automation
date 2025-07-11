@@ -1,4 +1,4 @@
-import os, json, requests, datetime as dt, pytz, telegram
+import os, requests, datetime as dt, pytz, telegram, json, asyncio
 
 TG_TOKEN    = os.getenv("TG_TOKEN")
 CHAT_ID     = os.getenv("CHAT_ID")
@@ -6,23 +6,35 @@ COINDAR_KEY = os.getenv("COINDAR_KEY")
 
 BERLIN = pytz.timezone("Europe/Berlin")
 TODAY  = dt.date.today()
-HORIZON_DAYS = 60
+HORIZON_DAYS = 90   # statt 60
 
-HIGH = {"listing", "protocol_upgrade", "smart_money_inflow", "regulatory_decision"}
-MED  = {"partnership", "governance_vote", "token_burn"}
+KEYWORDS_HIGH   = ["list", "fork", "upgrade", "burn", "protocol", "hard fork"]
+KEYWORDS_MEDIUM = ["partnership", "vote", "airdrop", "staking", "burn"]
 
 def fetch_events():
+    end_date = TODAY + dt.timedelta(days=HORIZON_DAYS)
     url = (
         f"https://coindar.org/api/v2/events?"
-        f"access_token={COINDAR_KEY}&date_start={TODAY}"
-        f"&days={HORIZON_DAYS}&page=1"
+        f"access_token={COINDAR_KEY}"
+        f"&date_start={TODAY}"
+        f"&date_end={end_date}"
+        f"&page=1"
     )
     resp = requests.get(url, timeout=20)
-    js = json.loads(resp.text)
-    for ev in js["events"]:
-        cat = ev.get("category", "").lower()
-        if cat in HIGH or cat in MED:
-            yield ev, ("High" if cat in HIGH else "Medium")
+    try:
+        js = resp.json()
+    except ValueError:
+        js = json.loads(resp.text)
+    events = js.get("events") if isinstance(js, dict) else js
+    for ev in events or []:
+        title = ev.get("caption", "").lower()
+        lvl = None
+        if any(k in title for k in KEYWORDS_HIGH):
+            lvl = "High"
+        elif any(k in title for k in KEYWORDS_MEDIUM):
+            lvl = "Medium"
+        if lvl:
+            yield ev, lvl
 
 def fmt(dt_str):
     try:
@@ -33,27 +45,27 @@ def fmt(dt_str):
 
 def build_digest(evs):
     lines = []
-    for ev, lvl in sorted(evs, key=lambda x: x[0]["date_event"]):
-        when = fmt(ev["date_event"])
-        lines.append(f"— [{lvl}] {when}  {ev['coin_symbol'].upper()} – {ev['title']}")
-    return "🗓️ Katalysatoren (60 Tage)\n" + "\n".join(lines)
+    for ev, lvl in sorted(evs, key=lambda x: x[0].get("date_event", x[0].get("date_start"))):
+        when = fmt(ev.get("date_event", ev.get("date_start", "")))
+        lines.append(f"— [{lvl}] {when}  {ev.get('coin_symbol','').upper()} – {ev['caption']}")
+    return "🗓️ Katalysatoren (90 Tage)\n" + "\n".join(lines)
 
 def build_reminders(evs):
     nxt = TODAY + dt.timedelta(days=1)
-    lines = [
-        f"⚠️ Morgen ({nxt}):",
-        *[f"— {ev['coin_symbol'].upper()} – {ev['title']}"
-          for ev, _ in evs if ev["date_event"].startswith(str(nxt))]
-    ]
-    return "\n".join(lines) if len(lines) > 1 else None
+    lines = [f"⚠️ Morgen ({nxt}):"]
+    for ev, lvl in evs:
+        d = ev.get("date_event", ev.get("date_start",""))
+        if d.startswith(str(nxt)):
+            lines.append(f"— {ev.get('coin_symbol','').upper()} – {ev['caption']}")
+    return "\n".join(lines) if len(lines)>1 else None
 
-def main():
+async def main():
     evs = list(fetch_events())
     bot = telegram.Bot(token=TG_TOKEN)
-    bot.send_message(chat_id=CHAT_ID, text=build_digest(evs))
+    await bot.send_message(chat_id=CHAT_ID, text=build_digest(evs))
     reminder = build_reminders(evs)
     if reminder:
-        bot.send_message(chat_id=CHAT_ID, text=reminder)
+        await bot.send_message(chat_id=CHAT_ID, text=reminder)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
