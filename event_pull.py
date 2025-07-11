@@ -1,4 +1,4 @@
-import os, requests, datetime as dt, pytz, telegram
+import os, json, requests, datetime as dt, pytz, telegram
 
 TG_TOKEN    = os.getenv("TG_TOKEN")
 CHAT_ID     = os.getenv("CHAT_ID")
@@ -12,10 +12,13 @@ HIGH = {"listing", "protocol_upgrade", "smart_money_inflow", "regulatory_decisio
 MED  = {"partnership", "governance_vote", "token_burn"}
 
 def fetch_events():
-    url = (f"https://coindar.org/api/v2/events?"
-           f"access_token={COINDAR_KEY}&date_start={TODAY}"
-           f"&days={HORIZON_DAYS}&page=1")
-    js = requests.get(url, timeout=20).json()
+    url = (
+        f"https://coindar.org/api/v2/events?"
+        f"access_token={COINDAR_KEY}&date_start={TODAY}"
+        f"&days={HORIZON_DAYS}&page=1"
+    )
+    resp = requests.get(url, timeout=20)
+    js = json.loads(resp.text)
     for ev in js["events"]:
         cat = ev.get("category", "").lower()
         if cat in HIGH or cat in MED:
